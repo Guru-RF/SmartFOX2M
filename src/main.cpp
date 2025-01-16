@@ -3,6 +3,7 @@
 #include "cw.h"
 #include "music.h"
 #include "pots.h"
+#include "pwm.h"
 #include "si5351.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -74,6 +75,8 @@ void processPayload(const char *payload) {
         doom();
       else if (strcmp(token, "supermario") == 0)
         supermario();
+      else if (strcmp(token, "pwm") == 0)
+        playPWM();
       else if (strcmp(token, "pacman") == 0)
         pacman();
       else if (strcmp(token, "babyelephantwalk") == 0)
@@ -144,7 +147,7 @@ void setup() {
     doc["cwMessage"] = "VVV de ON6URE  LOCATOR IS JO20cw  PWR IS 32mW  ANT IS "
                        "A NAGOYA MINI VERTICAL ";
     doc["payload"] =
-        "signal,5,ring,1,busy,1,congestion,1,nokia,1,pacman,1,doom,1,"
+        "signal,5,pwm,1,ring,1,busy,1,congestion,1,nokia,1,pacman,1,doom,1,"
         "supermario,1,babyelephantwalk,1,cw0,2,cw1,1,cwmsg,nosignal,20";
 
     File file = FatFS.open(filePath, "w");
