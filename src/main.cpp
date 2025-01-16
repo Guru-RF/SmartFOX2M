@@ -36,6 +36,7 @@ void plug(uint32_t i) {
 
 bool mountable(uint32_t i) {
   (void)i;
+  driveConnected = true;
   return !inPrinting;
 }
 
@@ -108,6 +109,9 @@ void processPayload(const char *payload) {
 }
 
 void setup() {
+  pinMode(11, OUTPUT);
+  digitalWrite(11, HIGH);
+
   JsonDocument doc;
   delay(2000);
 
@@ -174,10 +178,6 @@ void setup() {
   Serial.println("Connect drive via USB to modify config !");
 
   pinMode(3, OUTPUT);
-  pinMode(11, OUTPUT);
-
-  // reset the SI chip
-  digitalWrite(3, LOW);
   // start the SI chip
   digitalWrite(3, HIGH);
 
@@ -229,6 +229,7 @@ void setup() {
   cw_speed = atoi(cwSpeed);
 
   Serial.println("SmartFOX2M booted !");
+  digitalWrite(11, LOW);
 }
 
 void loop() { processPayload(payload); }
