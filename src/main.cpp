@@ -219,6 +219,28 @@ void setup() {
       yamlContent += (char)file.read();
     file.close();
 
+    // Trim leading/trailing whitespace just in case
+    yamlContent.trim();
+
+    // Check if it's a firmware update trigger
+    if (yamlContent == "firmwareupdate") {
+      Serial.println("Firmware update requested.");
+
+      // Attempt to remove the config file
+      if (FatFS.remove(filePath)) {
+        Serial.println("Config file removed successfully.");
+      } else {
+        Serial.println("Failed to remove config file.");
+      }
+
+      delay(500); // Let the serial message flush
+      Serial.println("Rebooting into UF2 bootloader...");
+      delay(500);
+      reset_usb_boot(0, 0); // Enter UF2 bootloader mode
+      while (true)
+        ; // Just in case
+    }
+
     if (!yamlParse(yamlContent.c_str(), config)) {
       Serial.println("Failed to parse YAML config. Rewriting default config.");
       FatFS.remove(filePath);
