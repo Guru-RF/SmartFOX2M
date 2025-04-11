@@ -18,6 +18,8 @@ struct Config {
   String payload;
 } config;
 
+void statusLED(bool on) { digitalWrite(11, on ? HIGH : LOW); }
+
 bool yamlParse(const char *yaml, Config &cfg) {
   String line;
   String payloadBlock = "";
@@ -111,12 +113,28 @@ bool mountable(uint32_t i) {
   return !inPrinting;
 }
 
-void cwmsg() { cw_string_proc(cw_message, cw_freq, cw_speed); }
-void cw0() { cw(false, cw_freq); }
-void cw1() { cw(true, cw_freq); }
-void nosignal() { si5351.output_enable(SI5351_CLK0, 0); }
-void signal() { si5351.output_enable(SI5351_CLK0, 1); }
+void nosignal() {
+  si5351.output_enable(SI5351_CLK0, 0);
+  statusLED(false);
+}
+void signal() {
+  si5351.output_enable(SI5351_CLK0, 1);
+  statusLED(true);
+}
 
+void cwmsg() {
+  signal();
+  cw_string_proc(cw_message, cw_freq, cw_speed);
+  statusLED(true);
+}
+void cw0() {
+  signal();
+  cw(false, cw_freq);
+}
+void cw1() {
+  signal();
+  cw(true, cw_freq);
+}
 void processPayload(const char *payload) {
   Serial.println("Processing payload...");
   char buffer[1024];
@@ -193,7 +211,7 @@ void processPayload(const char *payload) {
 
 void setup() {
   pinMode(11, OUTPUT);
-  digitalWrite(11, HIGH);
+  statusLED(true);
 
   delay(2000);
   if (!FatFS.begin()) {
@@ -362,7 +380,6 @@ configLoaded:
   cw_speed = config.cwSpeed.toInt();
 
   Serial.println("SmartFOX2M booted !");
-  digitalWrite(11, LOW);
 }
 
 void loop() { processPayload(payload); }

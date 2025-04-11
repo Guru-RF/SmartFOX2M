@@ -1,10 +1,14 @@
 #include "cw.h"
 
+void cwLED(bool on) { digitalWrite(11, on ? HIGH : LOW); }
+
 void cw(bool state, int hz) {
   if (state) {
     tone(15, hz);
+    cwLED(true);
   } else {
     tone(15, 0);
+    cwLED(false);
   }
 }
 
