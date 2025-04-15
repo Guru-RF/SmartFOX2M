@@ -3,7 +3,7 @@
 SmartFOX 2M is a compact, battery powerd, self-contained ARDF (Amateur Radio Direction Finding) fox transmitter for the 2-meter band (144 MHz).  
 When ordered, your SmartFOX comes with the **latest firmware pre-installed**.
 
-[SmartFOX 2M – ARDF Beacon Transmitter (144 MHz)](https://shop.rf.guru/products/smartfox-2m-ardf)
+Buy here [SmartFOX 2M – ARDF Beacon Transmitter (144 MHz)](https://shop.rf.guru/products/smartfox-2m-ardf)
 ---
 
 ## 🧠 How it Works
