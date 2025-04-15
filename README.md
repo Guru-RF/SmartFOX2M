@@ -5,7 +5,7 @@ When ordered, your SmartFOX comes with the **latest firmware pre-installed**.
 
 Buy here [SmartFOX 2M – ARDF Beacon Transmitter (144 MHz)](https://shop.rf.guru/products/smartfox-2m-ardf)
 
-YouTube [YouTube Playlist](https://www.youtube.com/watch?v=FcKwp6ePWOw&list=PL2neu3pWcZxienwiAIDyjRAkZ46nNQhHx)
+YouTube [YouTube Playlist](https://www.youtube.com/watch?v=93If1xDU2ds&list=PL2neu3pWcZxienwiAIDyjRAkZ46nNQhHx&index=1)
 
 ---
 
