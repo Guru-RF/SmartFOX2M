@@ -1,5 +1,7 @@
 #include <Arduino.h>
 #include <PWMAudio.h>
-#include "wav.h"
+
+extern PWMAudio pwm;
 
 void playPWM();
+void playWAV(const char *path);

@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
-// Define musical notes
+// Note frequencies (Hz). Kept for reference; melodies now live as .rtttl files
+// on the FatFS USB drive and are played via playRTTTL() in rtttl.cpp.
 #define NOTE_B0 31
 #define NOTE_C1 33
 #define NOTE_CS1 35
@@ -91,9 +92,3 @@
 #define NOTE_D8 4699
 #define NOTE_DS8 4978
 #define REST 0
-
-void babyelephantwalk();
-void doom();
-void supermario();
-void nokia();
-void pacman();
