@@ -35,6 +35,183 @@ extern struct Config {
 
 static String buf;
 
+static long long ymdhmsToEpochLocal(int Y, int M, int D, int h, int m, int s) {
+  int y = Y;
+  if (M <= 2)
+    y -= 1;
+  long long era = (y >= 0 ? y : y - 399) / 400;
+  unsigned yoe = (unsigned)(y - era * 400);
+  unsigned doy = (153u * (unsigned)(M + (M > 2 ? -3 : 9)) + 2) / 5 + (unsigned)D - 1;
+  unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  long long days = era * 146097LL + (long long)doe - 719468LL;
+  return days * 86400LL + (long long)h * 3600LL + (long long)m * 60LL + s;
+}
+
+// Parse EPOCH / ISO8601 / RFC 822/1036/1123/2822/3339 / "YYYY-MM-DD HH:MM:SS"
+static long long parseAnyTimestampToEpoch(const String &raw) {
+  String s = raw;
+  s.trim();
+  if (s.length() == 0)
+    return -1LL;
+
+  bool allDigits = s.length() >= 9;
+  for (int i = 0; i < (int)s.length() && allDigits; i++) {
+    if (!isDigit(s[i]))
+      allDigits = false;
+  }
+  if (allDigits) {
+    long long v = 0;
+    for (int i = 0; i < (int)s.length(); i++)
+      v = v * 10 + (s[i] - '0');
+    return v;
+  }
+
+  int hmsPos = -1;
+  int H = 0, M = 0, S = 0;
+  for (int i = 0; i + 8 <= (int)s.length(); i++) {
+    if (isDigit(s[i]) && isDigit(s[i + 1]) && s[i + 2] == ':' &&
+        isDigit(s[i + 3]) && isDigit(s[i + 4]) && s[i + 5] == ':' &&
+        isDigit(s[i + 6]) && isDigit(s[i + 7])) {
+      if (i == 0 || !isDigit(s[i - 1])) {
+        H = (s[i] - '0') * 10 + (s[i + 1] - '0');
+        M = (s[i + 3] - '0') * 10 + (s[i + 4] - '0');
+        S = (s[i + 6] - '0') * 10 + (s[i + 7] - '0');
+        hmsPos = i;
+        break;
+      }
+    }
+  }
+  if (hmsPos < 0 || H > 23 || M > 59 || S > 59)
+    return -1LL;
+
+  int Y = -1, Mo = -1, D = -1;
+  String before = s.substring(0, hmsPos);
+
+  for (int i = 0; i + 10 <= (int)before.length(); i++) {
+    if (isDigit(before[i]) && isDigit(before[i + 1]) && isDigit(before[i + 2]) &&
+        isDigit(before[i + 3]) && before[i + 4] == '-' &&
+        isDigit(before[i + 5]) && isDigit(before[i + 6]) && before[i + 7] == '-' &&
+        isDigit(before[i + 8]) && isDigit(before[i + 9])) {
+      Y = (before[i] - '0') * 1000 + (before[i + 1] - '0') * 100 +
+          (before[i + 2] - '0') * 10 + (before[i + 3] - '0');
+      Mo = (before[i + 5] - '0') * 10 + (before[i + 6] - '0');
+      D = (before[i + 8] - '0') * 10 + (before[i + 9] - '0');
+      break;
+    }
+  }
+
+  if (Y < 0) {
+    static const char *const months[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+    String beforeL = before;
+    beforeL.toLowerCase();
+    int mIdx = -1;
+    int monStart = -1;
+    for (int mi = 0; mi < 12; mi++) {
+      String low = String(months[mi]);
+      low.toLowerCase();
+      int pos = beforeL.indexOf(low);
+      if (pos >= 0) {
+        mIdx = mi;
+        monStart = pos;
+        break;
+      }
+    }
+    if (mIdx >= 0) {
+      Mo = mIdx + 1;
+      String preM = before.substring(0, monStart);
+      int end = preM.length() - 1;
+      while (end >= 0 && !isDigit(preM[end]))
+        end--;
+      int start = end;
+      while (start > 0 && isDigit(preM[start - 1]))
+        start--;
+      if (end >= start && start >= 0)
+        D = preM.substring(start, end + 1).toInt();
+      String postM = before.substring(monStart + 3);
+      int ys = 0;
+      while (ys < (int)postM.length() && !isDigit(postM[ys]))
+        ys++;
+      int ye = ys;
+      while (ye < (int)postM.length() && isDigit(postM[ye]))
+        ye++;
+      if (ye > ys) {
+        String yearStr = postM.substring(ys, ye);
+        Y = yearStr.toInt();
+        if (yearStr.length() == 2)
+          Y += (Y >= 70) ? 1900 : 2000;
+      }
+    }
+  }
+
+  if (Y < 1970 || Mo < 1 || Mo > 12 || D < 1 || D > 31)
+    return -1LL;
+
+  long long epoch = ymdhmsToEpochLocal(Y, Mo, D, H, M, S);
+
+  String tail = s.substring(hmsPos + 8);
+  tail.trim();
+  if (tail.length() > 0 && tail[0] != 'Z') {
+    String zone = tail;
+    int gmt = zone.indexOf("GMT");
+    int utc = zone.indexOf("UTC");
+    int start = gmt >= 0 ? gmt + 3 : (utc >= 0 ? utc + 3 : 0);
+    zone = zone.substring(start);
+    zone.trim();
+    if (zone.length() > 0 && (zone[0] == '+' || zone[0] == '-')) {
+      String off = zone.substring(1);
+      int oh = 0, om = 0;
+      if (off.length() >= 5 && off[2] == ':') {
+        oh = off.substring(0, 2).toInt();
+        om = off.substring(3, 5).toInt();
+      } else if (off.length() >= 4) {
+        oh = off.substring(0, 2).toInt();
+        om = off.substring(2, 4).toInt();
+      } else if (off.length() >= 2) {
+        oh = off.substring(0, 2).toInt();
+      }
+      long long offSec = (long long)oh * 3600LL + (long long)om * 60LL;
+      if (zone[0] == '+')
+        epoch -= offSec;
+      else
+        epoch += offSec;
+    }
+  }
+
+  return epoch;
+}
+
+static String formatEpoch(long long epoch) {
+  if (epoch < 0)
+    return String("----/--/-- --:--:-- UTC");
+  long long secOfDay = epoch % 86400LL;
+  long long days = epoch / 86400LL;
+  if (secOfDay < 0) {
+    secOfDay += 86400LL;
+    days -= 1;
+  }
+  int h = (int)(secOfDay / 3600);
+  int m = (int)((secOfDay / 60) % 60);
+  int s = (int)(secOfDay % 60);
+
+  long long z = days + 719468LL;
+  long long era = (z >= 0 ? z : z - 146096) / 146097;
+  unsigned doe = (unsigned)(z - era * 146097LL);
+  unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  long long y = (long long)yoe + era * 400LL;
+  unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  unsigned mp = (5 * doy + 2) / 153;
+  unsigned d = doy - (153 * mp + 2) / 5 + 1;
+  unsigned mo = mp + (mp < 10 ? 3 : -9);
+  if (mo <= 2)
+    y += 1;
+
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%04ld-%02u-%02u %02d:%02d:%02d UTC",
+           (long)y, mo, d, h, m, s);
+  return String(buf);
+}
+
 static void help() {
   Serial.println(F("CLI commands:"));
   Serial.println(F("  help                 - this list"));
@@ -52,6 +229,10 @@ static void help() {
   Serial.println(F("  signal | nosignal    - toggle CLK0 output"));
   Serial.println(F("  id                   - send callsign ID now"));
   Serial.println(F("  slot <0..5>          - change ARDF slot live (0=off)"));
+  Serial.println(F("  time                 - print current UTC wall clock"));
+  Serial.println(F("  settime <timestamp>  - set the wall clock"));
+  Serial.println(F("                         accepts EPOCH | ISO8601 | RFC 822/1036/1123/2822/3339"));
+  Serial.println(F("  payload              - run the configured payload once"));
   Serial.println(F("  status               - print state summary"));
   Serial.println(F("  reboot               - software reset"));
 }
@@ -71,8 +252,8 @@ static void status() {
   Serial.println(F(" min"));
   Serial.print(F("window:  "));
   Serial.println(config.runWindow.length() ? config.runWindow : "always");
-  Serial.print(F("wallSec: "));
-  Serial.println(schedulerWallSecOfDay());
+  Serial.print(F("wallUTC: "));
+  Serial.println(formatEpoch(schedulerWallEpoch()));
   Serial.print(F("shouldTx:"));
   Serial.println(schedulerShouldTx() ? F(" yes") : F(" no"));
   Serial.print(F("bat:     "));
@@ -179,6 +360,26 @@ static void exec(String line) {
     radioNoSignal();
   } else if (head == "id") {
     runPayload("id");
+  } else if (head == "time") {
+    Serial.println(formatEpoch(schedulerWallEpoch()));
+  } else if (head == "settime") {
+    if (arg.length() == 0) {
+      Serial.println(F("settime: need a timestamp (EPOCH / ISO8601 / RFC 822/1036/1123/2822/3339)"));
+    } else {
+      long long epoch = parseAnyTimestampToEpoch(arg);
+      if (epoch < 0) {
+        Serial.println(F("settime: could not parse timestamp"));
+      } else {
+        schedulerSetWallEpoch(epoch);
+        Serial.print(F("wall clock set: "));
+        Serial.println(formatEpoch(epoch));
+      }
+    }
+  } else if (head == "payload") {
+    Serial.println(F("running payload..."));
+    runPayload(config.payload.c_str());
+    radioNoSignal();
+    Serial.println(F("payload done"));
   } else if (head == "slot") {
     config.ardfSlot = arg.toInt();
     Serial.print(F("ardfSlot -> "));

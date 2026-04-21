@@ -4,8 +4,20 @@ static ScheduleConfig sc;
 static void (*setFreqFn)(uint64_t) = nullptr;
 
 static unsigned long bootMs = 0;
-static long wallSecAtBoot = -1;
+static long long epochAtBoot = -1;
 static int winStart = -1, winEnd = -1;
+
+static long long ymdhmsToEpoch(int Y, int M, int D, int h, int m, int s) {
+  int y = Y;
+  if (M <= 2)
+    y -= 1;
+  long long era = (y >= 0 ? y : y - 399) / 400;
+  unsigned yoe = (unsigned)(y - era * 400);
+  unsigned doy = (153u * (unsigned)(M + (M > 2 ? -3 : 9)) + 2) / 5 + (unsigned)D - 1;
+  unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  long long days = era * 146097LL + (long long)doe - 719468LL;
+  return days * 86400LL + (long long)h * 3600LL + (long long)m * 60LL + s;
+}
 
 static unsigned long lastIDms = 0;
 static unsigned long lastFreqSwitchMs = 0;
@@ -24,21 +36,20 @@ static long parseHHMM(const String &s) {
   return h * 3600 + m * 60;
 }
 
-static long parseDateTimeToSec(const String &s) {
-  int sp = s.indexOf(' ');
-  if (sp < 0)
-    return -1;
-  String time = s.substring(sp + 1);
-  int c1 = time.indexOf(':');
-  int c2 = time.indexOf(':', c1 + 1);
-  if (c1 < 0 || c2 < 0)
-    return -1;
-  int h = time.substring(0, c1).toInt();
-  int m = time.substring(c1 + 1, c2).toInt();
-  int sec = time.substring(c2 + 1).toInt();
-  if (h < 0 || h > 23 || m < 0 || m > 59 || sec < 0 || sec > 59)
-    return -1;
-  return h * 3600L + m * 60L + sec;
+static long long parseConfigTimeToEpoch(const String &s) {
+  if (s.length() < 19)
+    return -1LL;
+  int Y = s.substring(0, 4).toInt();
+  int Mo = s.substring(5, 7).toInt();
+  int D = s.substring(8, 10).toInt();
+  int h = s.substring(11, 13).toInt();
+  int m = s.substring(14, 16).toInt();
+  int sec = s.substring(17, 19).toInt();
+  if (Y < 1970 || Mo < 1 || Mo > 12 || D < 1 || D > 31)
+    return -1LL;
+  if (h > 23 || m > 59 || sec > 59)
+    return -1LL;
+  return ymdhmsToEpoch(Y, Mo, D, h, m, sec);
 }
 
 static void splitFreqs(const String &csv) {
@@ -64,7 +75,7 @@ void schedulerBegin(const ScheduleConfig &cfg, void (*fn)(uint64_t)) {
   lastFreqSwitchMs = bootMs;
 
   if (sc.currentTime.length() > 0)
-    wallSecAtBoot = parseDateTimeToSec(sc.currentTime);
+    epochAtBoot = parseConfigTimeToEpoch(sc.currentTime);
 
   if (sc.runWindow.length() > 0) {
     int dash = sc.runWindow.indexOf('-');
@@ -77,12 +88,26 @@ void schedulerBegin(const ScheduleConfig &cfg, void (*fn)(uint64_t)) {
   splitFreqs(sc.freqList);
 }
 
-long schedulerWallSecOfDay() {
-  if (wallSecAtBoot < 0)
-    return -1;
+long long schedulerWallEpoch() {
+  if (epochAtBoot < 0)
+    return -1LL;
   unsigned long elapsed = (millis() - bootMs) / 1000;
-  long t = (wallSecAtBoot + (long)elapsed) % 86400L;
+  return epochAtBoot + (long long)elapsed;
+}
+
+long schedulerWallSecOfDay() {
+  long long ep = schedulerWallEpoch();
+  if (ep < 0)
+    return -1;
+  long t = (long)(ep % 86400LL);
+  if (t < 0)
+    t += 86400;
   return t;
+}
+
+void schedulerSetWallEpoch(long long ep) {
+  epochAtBoot = ep;
+  bootMs = millis();
 }
 
 static bool inRunWindow() {
@@ -103,30 +128,30 @@ static bool inArdfSlot() {
   if (cycleSec <= 0)
     return true;
 
-  long ref;
-  long w = schedulerWallSecOfDay();
-  if (w >= 0)
-    ref = w;
+  long long ref;
+  long long ep = schedulerWallEpoch();
+  if (ep >= 0)
+    ref = ep;
   else
-    ref = (long)((millis() - bootMs) / 1000);
+    ref = (long long)((millis() - bootMs) / 1000);
 
-  long inCycle = ref % cycleSec;
-  long slotIdx = inCycle / 60L;
-  return slotIdx == (long)(sc.ardfSlot - 1);
+  long long inCycle = ref % cycleSec;
+  long long slotIdx = inCycle / 60LL;
+  return slotIdx == (long long)(sc.ardfSlot - 1);
 }
 
 unsigned long schedulerSlotEndsInMs() {
   if (sc.ardfSlot <= 0)
     return 0xFFFFFFFFUL;
-  long ref;
-  long w = schedulerWallSecOfDay();
-  if (w >= 0)
-    ref = w;
+  long long ref;
+  long long ep = schedulerWallEpoch();
+  if (ep >= 0)
+    ref = ep;
   else
-    ref = (long)((millis() - bootMs) / 1000);
-  long inCycle = ref % ((long)sc.ardfCycleMin * 60L);
-  long slotStart = ((long)(sc.ardfSlot - 1)) * 60L;
-  long secLeft = (slotStart + 60L) - inCycle;
+    ref = (long long)((millis() - bootMs) / 1000);
+  long long inCycle = ref % ((long long)sc.ardfCycleMin * 60LL);
+  long long slotStart = ((long long)(sc.ardfSlot - 1)) * 60LL;
+  long long secLeft = (slotStart + 60LL) - inCycle;
   if (secLeft < 0)
     return 0;
   return (unsigned long)secLeft * 1000UL;

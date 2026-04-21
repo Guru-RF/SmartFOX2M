@@ -18,5 +18,7 @@ bool schedulerIDDue();
 void schedulerNoteIDSent();
 unsigned long schedulerSlotEndsInMs();
 long schedulerWallSecOfDay();
+long long schedulerWallEpoch();
+void schedulerSetWallEpoch(long long epoch);
 String schedulerCurrentFreqMHz();
 void schedulerForceNextFreq();
