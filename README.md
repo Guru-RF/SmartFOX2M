@@ -4,8 +4,8 @@ SmartFOX is a compact, battery-powered, self-contained ARDF (Amateur Radio Direc
 
 At boot the firmware auto-detects the hardware:
 
-- **GP17 shorted to GND** → 80M PCB → HF CW mode (Si5351 direct keying, 8 mA drive, no VCXO, no audio playback)
-- **GP17 floating / high** → 2M PCB → VHF FM mode (VCXO modulation, 2 mA drive, sidetone-keyed CW, WAV / RTTTL / MOD playback)
+- 80M PCB → HF CW mode (Si5351 direct keying, 8 mA drive, no VCXO, no audio playback)
+- 2M PCB → VHF FM mode (VCXO modulation, 2 mA drive, sidetone-keyed CW, WAV / RTTTL / MOD playback)
 
 The `config.txt` written on first boot is tailored to the detected band (different default frequency, offset, payload). You can also override detection via a hidden CLI command — see [Developer overrides](#-developer-overrides).
 
