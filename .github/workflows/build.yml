@@ -9,6 +9,9 @@ on:
     types: [created, published]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -44,9 +47,9 @@ jobs:
           SRC=.pio/build/pico/firmware.uf2
           test -f "$SRC"
           if [ -n "${GITHUB_REF_NAME}" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            OUT="smartfox2m-${GITHUB_REF_NAME}.uf2"
+            OUT="smartfox-${GITHUB_REF_NAME}.uf2"
           else
-            OUT="smartfox2m-${GITHUB_SHA::7}.uf2"
+            OUT="smartfox-${GITHUB_SHA::7}.uf2"
           fi
           cp "$SRC" "$OUT"
           echo "uf2=$OUT" >> "$GITHUB_OUTPUT"

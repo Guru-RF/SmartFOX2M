@@ -323,7 +323,7 @@ Set `runWindow` to limit TX to certain hours, e.g. `"09:00-17:00"`. Outside the 
 
 ## 🔁 Firmware Update
 
-**Pre‑built UF2 files are attached to every [GitHub release](https://github.com/Guru-RF/SmartFOX2M/releases).** You don't need to build the firmware yourself — grab `smartfox2m-vX.Y.Z.uf2` from the latest release's **Assets** section.
+**Pre‑built UF2 files are attached to every [GitHub release](https://github.com/Guru-RF/SmartFOX/releases).** You don't need to build the firmware yourself — grab `smartfox-vX.Y.Z.uf2` from the latest release's **Assets** section.
 
 To flash it:
 
@@ -332,7 +332,7 @@ To flash it:
 3. Save the file
 4. **Eject or safely remove** the `SMARTFOX` drive
 5. The device will reboot into **UF2 bootloader mode** and appear as a drive named `RPI-RP2`
-6. Drag the downloaded `smartfox2m-*.uf2` file onto the `RPI-RP2` drive
+6. Drag the downloaded `smartfox-*.uf2` file onto the `RPI-RP2` drive
 7. The firmware will update and reboot automatically
    ✅ Your configuration (`config.txt`) remains untouched
 
