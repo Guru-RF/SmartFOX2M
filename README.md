@@ -159,7 +159,7 @@ Morse speed is specified in **Words Per Minute** (PARIS standard). The firmware 
 
 ### Battery thresholds
 
-Hardware is fixed: VSYS sensed on **GPIO28 (ADC2)** through a **100 kΩ / 100 kΩ** resistive divider (2:1 ratio). Setting either threshold to 0 disables that check — set both to 0 on the bench with no battery.
+Hardware is fixed: VSYS sensed on **ADC** through a **100 kΩ / 100 kΩ** resistive divider (2:1 ratio). Setting either threshold to 0 disables that check — set both to 0 on the bench with no battery.
 
 Standard 1S LiPo thresholds:
 
