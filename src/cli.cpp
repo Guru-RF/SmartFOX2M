@@ -17,6 +17,7 @@ extern struct Config {
   int cwWPM;
   String cwFreq;
   int cwVolume;
+  int modVolume;
   String cwMessage;
   String cwMessage1;
   String cwMessage2;
@@ -314,6 +315,7 @@ static void exec(String line) {
     }
     Serial.printf("%lu file%s, %.1f KB total\n", (unsigned long)count,
                   count == 1 ? "" : "s", total / 1024.0f);
+    Serial.println();
   } else if (head == "bat") {
     Serial.print(readBattery(), 3);
     Serial.println(F(" V"));

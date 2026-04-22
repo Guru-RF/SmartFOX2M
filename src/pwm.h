@@ -3,6 +3,11 @@
 
 extern PWMAudio pwm;
 
+// True while playWAV / playMOD is actively rendering. Used by the FatFSUSB
+// driveReady callback to tell the host the drive is not ready, so MSC reads
+// don't stall the XIP cache (and FatFS) mid-playback and click the audio.
+extern volatile bool audioBusy;
+
 void playPWM();
 void playWAV(const char *path);
 

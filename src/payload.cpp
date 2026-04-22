@@ -20,6 +20,7 @@ extern struct Config {
   int cwWPM;
   String cwFreq;
   int cwVolume;
+  int modVolume;
   String cwMessage;
   String cwMessage1;
   String cwMessage2;

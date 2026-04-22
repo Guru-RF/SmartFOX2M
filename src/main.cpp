@@ -22,6 +22,7 @@ struct Config {
   int cwWPM;
   String cwFreq;
   int cwVolume;
+  int modVolume;
   String cwMessage;
   String cwMessage1;
   String cwMessage2;
@@ -45,7 +46,6 @@ Si5351 si5351;
 
 volatile bool updated = false;
 volatile bool driveConnected = false;
-volatile bool inPrinting = false;
 static bool batCutoff = false;
 
 static void setDefaults(Config &c) {
@@ -56,6 +56,7 @@ static void setDefaults(Config &c) {
   c.cwWPM = 24;
   c.cwFreq = "750";
   c.cwVolume = 100;
+  c.modVolume = 32;
   c.cwMessage = "";
   c.cwMessage1 = is80
                      ? "VVV de ON6URE  QRP CW BEACON ON 80M"
@@ -138,6 +139,7 @@ static bool yamlParse(const char *yaml, Config &cfg) {
       else if (key == "cwWPM") cfg.cwWPM = value.toInt();
       else if (key == "cwFreq") cfg.cwFreq = value;
       else if (key == "cwVolume") cfg.cwVolume = value.toInt();
+      else if (key == "modVolume") cfg.modVolume = value.toInt();
       else if (key == "cwMessage") cfg.cwMessage = value;
       else if (key == "cwMessage1") cfg.cwMessage1 = value;
       else if (key == "cwMessage2") cfg.cwMessage2 = value;
@@ -182,7 +184,7 @@ static void plug(uint32_t i) {
 static bool mountable(uint32_t i) {
   (void)i;
   driveConnected = true;
-  return !inPrinting;
+  return !audioBusy;
 }
 
 static void setRadioFreq(uint64_t hz) {
@@ -318,6 +320,9 @@ static const char *defaultYaml2M() {
       "cwFreq: \"750\"\n"
       "# CW tone volume 0-100 (% of max). Lower if your receiver crackles.\n"
       "cwVolume: 100\n"
+      "# MOD playback gain (micromod). 256 = unity. 64 = no-distortion for\n"
+      "# 4-channel MODs, 32 or less for 8-channel. Lower if playback clips.\n"
+      "modVolume: 32\n"
       "cwMessage1: \"VVV de ON6URE  LOCATOR IS JO20cw  PWR IS 32mW  ANT IS A NAGOYA MINI VERTICAL\"\n"
       "cwMessage2: \"\"\n"
       "cwMessage3: \"\"\n"

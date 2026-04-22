@@ -3,6 +3,8 @@
 
 PWMAudio pwm(15);
 
+volatile bool audioBusy = false;
+
 struct WAVFmt {
   uint32_t sampleRate;
   uint16_t bitsPerSample;
@@ -81,6 +83,7 @@ void playWAV(const char *path) {
   }
 
   f.seek(fmt.dataOffset);
+  audioBusy = true;
   pwm.setPin(15);
   pwm.begin(fmt.sampleRate);
 
@@ -104,6 +107,7 @@ void playWAV(const char *path) {
     yield();
   pwm.end();
   audioIdle();
+  audioBusy = false;
   f.close();
 }
 

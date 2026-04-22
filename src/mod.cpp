@@ -6,6 +6,31 @@ extern "C" {
 #include "micromod.h"
 }
 
+extern struct Config {
+  String fmFreq;
+  String fmFreqList;
+  String fmOffset;
+  int cwWPM;
+  String cwFreq;
+  int cwVolume;
+  int modVolume;
+  String cwMessage;
+  String cwMessage1;
+  String cwMessage2;
+  String cwMessage3;
+  String idCallsign;
+  String payload;
+  int ardfSlot;
+  int ardfCycleMin;
+  int idIntervalMin;
+  int freqCycleSec;
+  String runWindow;
+  String currentTime;
+  float batLowVolts;
+  float batCutoffVolts;
+  bool sleepBetweenSlots;
+} config;
+
 #define MOD_SAMPLE_RATE 22050
 #define MOD_BLOCK 128
 
@@ -61,7 +86,7 @@ void playMOD(const char *path) {
     free(buf);
     return;
   }
-  micromod_set_gain(256);
+  micromod_set_gain(config.modVolume > 0 ? config.modVolume : 32);
 
   char songName[24];
   micromod_get_string(0, songName);
@@ -73,6 +98,7 @@ void playMOD(const char *path) {
 
   long totalSamples = micromod_calculate_song_duration();
 
+  audioBusy = true;
   pwm.setPin(15);
   pwm.begin(MOD_SAMPLE_RATE);
 
@@ -101,5 +127,6 @@ void playMOD(const char *path) {
     yield();
   pwm.end();
   audioIdle();
+  audioBusy = false;
   free(buf);
 }
