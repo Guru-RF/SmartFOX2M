@@ -1,4 +1,5 @@
 #include "payload.h"
+#include "band.h"
 #include "cw.h"
 #include "leds.h"
 #include "mod.h"
@@ -16,8 +17,9 @@ extern struct Config {
   String fmFreq;
   String fmFreqList;
   String fmOffset;
-  String cwSpeed;
+  int cwWPM;
   String cwFreq;
+  int cwVolume;
   String cwMessage;
   String cwMessage1;
   String cwMessage2;
@@ -33,8 +35,6 @@ extern struct Config {
   float batLowVolts;
   float batCutoffVolts;
   bool sleepBetweenSlots;
-  int batAdcPin;
-  float batDivider;
 } config;
 
 void radioSignal() {
@@ -47,6 +47,11 @@ void radioNoSignal() {
   ledSetState(LED_IDLE);
 }
 
+static int cwDitMs() {
+  int wpm = config.cwWPM > 0 ? config.cwWPM : 24;
+  return 1200 / wpm;
+}
+
 void radioCwMsg(int slot) {
   String msg;
   switch (slot) {
@@ -57,16 +62,19 @@ void radioCwMsg(int slot) {
   }
   if (msg.length() == 0)
     return;
+  cwSetVolume(config.cwVolume > 0 ? config.cwVolume : 100);
   radioSignal();
-  cw_string_proc(msg.c_str(), config.cwFreq.toInt(), config.cwSpeed.toInt());
+  cw_string_proc(msg.c_str(), config.cwFreq.toInt(), cwDitMs());
 }
 
 void radioCw0() {
+  cwSetVolume(config.cwVolume > 0 ? config.cwVolume : 100);
   radioSignal();
   cw(false, config.cwFreq.toInt());
 }
 
 void radioCw1() {
+  cwSetVolume(config.cwVolume > 0 ? config.cwVolume : 100);
   radioSignal();
   cw(true, config.cwFreq.toInt());
 }
@@ -77,9 +85,9 @@ static void sendCwId() {
   Serial.print("CW-ID: ");
   Serial.println(config.idCallsign);
   bool wasTx = (ledGetState() == LED_TX);
+  cwSetVolume(config.cwVolume > 0 ? config.cwVolume : 100);
   radioSignal();
-  cw_string_proc(config.idCallsign.c_str(), config.cwFreq.toInt(),
-                 config.cwSpeed.toInt());
+  cw_string_proc(config.idCallsign.c_str(), config.cwFreq.toInt(), cwDitMs());
   if (!wasTx)
     radioNoSignal();
   schedulerNoteIDSent();
@@ -99,28 +107,29 @@ void payloadWaitMs(unsigned long ms) {
 }
 
 static void doTone(int hz, int ms) {
-  tone(15, hz);
+  audioTone(hz);
   payloadWaitMs(ms);
-  noTone(15);
+  audioIdle();
 }
 
 static void doHoming(int sec) {
   unsigned long end = millis() + (unsigned long)sec * 1000UL;
   bool hi = false;
   while ((long)(end - millis()) > 0 && schedulerShouldTx()) {
-    tone(15, hi ? 1100 : 700);
+    audioTone(hi ? 1100 : 700);
     delay(180);
     hi = !hi;
     schedulerTick();
     ledTick();
   }
-  noTone(15);
+  audioIdle();
 }
 
 static void cwSpeak(const String &s) {
   bool wasTx = (ledGetState() == LED_TX);
+  cwSetVolume(config.cwVolume > 0 ? config.cwVolume : 100);
   radioSignal();
-  cw_string_proc(s.c_str(), config.cwFreq.toInt(), config.cwSpeed.toInt());
+  cw_string_proc(s.c_str(), config.cwFreq.toInt(), cwDitMs());
   if (!wasTx)
     radioNoSignal();
 }
@@ -277,6 +286,20 @@ void runPayload(const char *payload) {
 
     String &cmd = lines[pc];
 
+    // Skip audio-playback and signal-gating commands on 80M (HF CW): no PWM
+    // audio chain, and cw() already keys the carrier directly.
+    bool is80 = (bandDetected() == BAND_80M);
+    bool audioCmd = cmd.startsWith("play ") || cmd.startsWith("random ") ||
+                    cmd.startsWith("tone ") || cmd.startsWith("homing ") ||
+                    cmd == "pwm" || cmd == "ring" || cmd == "busy" ||
+                    cmd == "congestion" || cmd == "signal" || cmd == "nosignal";
+    if (is80 && audioCmd) {
+      Serial.print("[80M] skipping audio/signal cmd: ");
+      Serial.println(cmd);
+      pc++;
+      continue;
+    }
+
     if (cmd.startsWith("wait ")) {
       payloadWaitMs((unsigned long)cmd.substring(5).toInt() * 1000UL);
     } else if (cmd.startsWith("play ")) {
@@ -315,10 +338,13 @@ void runPayload(const char *payload) {
       playPWM();
     } else if (cmd == "ring") {
       ring(5);
+      audioIdle();
     } else if (cmd == "busy") {
       busy(5);
+      audioIdle();
     } else if (cmd == "congestion") {
       congestion(5);
+      audioIdle();
     } else if (cmd == "cw0") {
       radioCw0();
     } else if (cmd == "cw1") {

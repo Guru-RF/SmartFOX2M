@@ -1,13 +1,44 @@
 #include "cw.h"
+#include "pwm.h"
+#include "si5351.h"
+#include <math.h>
+
+extern Si5351 si5351;
 
 void cwLED(bool on) { digitalWrite(11, on ? HIGH : LOW); }
 
+static int cwVolumePct = 100;
+static CwKeying cwMode = CW_KEY_TONE;
+
+void cwSetVolume(int pct) {
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  cwVolumePct = pct;
+}
+
+void cwSetKeying(CwKeying mode) { cwMode = mode; }
+
 void cw(bool state, int hz) {
+  if (cwMode == CW_KEY_OUTPUT) {
+    // 80M/HF: carrier itself is keyed — no sidetone on pin 15.
+    si5351.output_enable(SI5351_CLK0, state ? 1 : 0);
+    cwLED(state);
+    return;
+  }
+  // 2M/VHF: sidetone on pin 15 FM-modulates the continuous carrier.
   if (state) {
-    tone(15, hz);
+    float v = cwVolumePct / 100.0f;
+    if (v <= 0.0f) {
+      audioIdle();
+      cwLED(false);
+      return;
+    }
+    float duty = asinf(v) / (float)PI;  // 0..0.5
+    int d = (int)(duty * 1024.0f + 0.5f);
+    audioTone(hz, d);
     cwLED(true);
   } else {
-    tone(15, 0);
+    audioIdle();
     cwLED(false);
   }
 }

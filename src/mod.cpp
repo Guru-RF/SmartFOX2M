@@ -100,5 +100,6 @@ void playMOD(const char *path) {
   while (pwm.availableForWrite() < 16)
     yield();
   pwm.end();
+  audioIdle();
   free(buf);
 }

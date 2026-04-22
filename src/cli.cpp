@@ -1,7 +1,9 @@
 #include "cli.h"
+#include "band.h"
 #include "cw.h"
 #include "payload.h"
 #include "pots.h"
+#include "pwm.h"
 #include "scheduler.h"
 #include "sensors.h"
 #include "si5351.h"
@@ -12,8 +14,9 @@ extern struct Config {
   String fmFreq;
   String fmFreqList;
   String fmOffset;
-  String cwSpeed;
+  int cwWPM;
   String cwFreq;
+  int cwVolume;
   String cwMessage;
   String cwMessage1;
   String cwMessage2;
@@ -29,8 +32,6 @@ extern struct Config {
   float batLowVolts;
   float batCutoffVolts;
   bool sleepBetweenSlots;
-  int batAdcPin;
-  float batDivider;
 } config;
 
 static String buf;
@@ -213,20 +214,26 @@ static String formatEpoch(long long epoch) {
 }
 
 static void help() {
-  Serial.println(F("CLI commands:"));
+  bool is80 = (bandDetected() == BAND_80M);
+  Serial.print(F("CLI commands ("));
+  Serial.print(is80 ? F("80M") : F("2M"));
+  Serial.println(F(" mode):"));
   Serial.println(F("  help                 - this list"));
   Serial.println(F("  ls                   - list files on the drive"));
   Serial.println(F("  bat                  - print battery voltage"));
   Serial.println(F("  temp                 - print RP2040 temperature"));
-  Serial.println(F("  freq <MHz>           - retune CLK0"));
-  Serial.println(F("  play <file>          - play .wav or .rtttl from drive"));
-  Serial.println(F("  random <*.ext>       - play a random matching file"));
-  Serial.println(F("  tone <hz> <ms>       - emit a tone"));
-  Serial.println(F("  pots <ring|busy|congestion>  (runs ~5s)"));
+  Serial.println(F("  freq [MHz]           - print or retune CLK0"));
+  if (!is80) {
+    Serial.println(F("  play <file>          - play .wav / .rtttl / .mod from drive"));
+    Serial.println(F("  random <*.ext>       - play a random matching file"));
+    Serial.println(F("  tone <hz> <ms>       - emit a tone"));
+    Serial.println(F("  pots <ring|busy|congestion>  (runs ~5s)"));
+  }
   Serial.println(F("  cw <text>            - send arbitrary CW text"));
   Serial.println(F("  cwmsg [1|2|3]        - send a CW message slot"));
-  Serial.println(F("  msg <text>           - set cwMessage1 (RAM only)"));
-  Serial.println(F("  signal | nosignal    - toggle CLK0 output"));
+  Serial.println(F("  msg <1|2|3> <text>   - set cwMessageN (RAM only, no echo)"));
+  if (!is80)
+    Serial.println(F("  signal | nosignal    - toggle CLK0 output"));
   Serial.println(F("  id                   - send callsign ID now"));
   Serial.println(F("  slot <0..5>          - change ARDF slot live (0=off)"));
   Serial.println(F("  time                 - print current UTC wall clock"));
@@ -234,6 +241,7 @@ static void help() {
   Serial.println(F("                         accepts EPOCH | ISO8601 | RFC 822/1036/1123/2822/3339"));
   Serial.println(F("  payload              - run the configured payload once"));
   Serial.println(F("  status               - print state summary"));
+  Serial.println(F("  formatdisk           - WIPE the USB drive and reboot"));
   Serial.println(F("  reboot               - software reset"));
 }
 
@@ -274,6 +282,17 @@ static void exec(String line) {
   String arg = sp < 0 ? String() : line.substring(sp + 1);
   arg.trim();
 
+  // On 80M (HF CW) hardware there is no PWM audio path, so these commands
+  // have no effect. Refuse them loudly so users aren't surprised.
+  if (bandDetected() == BAND_80M) {
+    if (head == "play" || head == "random" || head == "tone" ||
+        head == "pots" || head == "signal" || head == "nosignal") {
+      Serial.print(F("not available on 80M: "));
+      Serial.println(head);
+      return;
+    }
+  }
+
   if (head == "help" || head == "?") {
     help();
   } else if (head == "ls") {
@@ -302,14 +321,21 @@ static void exec(String line) {
     Serial.print(readTemp(), 2);
     Serial.println(F(" C"));
   } else if (head == "freq") {
-    double mhz = arg.toFloat();
-    if (mhz > 0) {
-      config.fmFreq = arg;
-      uint64_t hz = (uint64_t)(mhz * 1e8);
-      si5351.set_freq(hz, SI5351_CLK0);
-      Serial.print(F("freq -> "));
-      Serial.print(mhz, 4);
+    if (arg.length() == 0) {
+      Serial.print(config.fmFreq);
       Serial.println(F(" MHz"));
+    } else {
+      double mhz = arg.toFloat();
+      if (mhz > 0) {
+        config.fmFreq = arg;
+        uint64_t hz = (uint64_t)(mhz * 1e8);
+        si5351.set_freq(hz, SI5351_CLK0);
+        Serial.print(F("freq -> "));
+        Serial.print(mhz, 4);
+        Serial.println(F(" MHz"));
+      } else {
+        Serial.println(F("freq: bad value"));
+      }
     }
   } else if (head == "play") {
     radioSignal();
@@ -337,29 +363,56 @@ static void exec(String line) {
         busy(5);
       else
         congestion(15);
+      audioIdle();
       radioNoSignal();
     } else
       Serial.println(F("pots: ring | busy | congestion"));
   } else if (head == "cw") {
     if (arg.length()) {
+      cwSetVolume(config.cwVolume > 0 ? config.cwVolume : 100);
       radioSignal();
-      cw_string_proc(arg.c_str(), config.cwFreq.toInt(),
-                     config.cwSpeed.toInt());
+      int wpm = config.cwWPM > 0 ? config.cwWPM : 24;
+      cw_string_proc(arg.c_str(), config.cwFreq.toInt(), 1200 / wpm);
       radioNoSignal();
+      Serial.println();
     }
   } else if (head == "cwmsg") {
     int slot = arg.length() ? arg.toInt() : 1;
     radioCwMsg(slot);
+    Serial.println();
   } else if (head == "msg") {
-    config.cwMessage1 = arg;
-    Serial.print(F("cwMessage1 -> "));
-    Serial.println(arg);
+    // msg <slot>          → print current value of cwMessageN
+    // msg <slot> <text>   → store new value (RAM only), no echo
+    int sp2 = arg.indexOf(' ');
+    int slot = (sp2 < 0 ? arg : arg.substring(0, sp2)).toInt();
+    if (slot < 1 || slot > 3) {
+      Serial.println(F("usage: msg <1|2|3> [text]"));
+    } else if (sp2 < 0) {
+      String *cur =
+          slot == 1 ? &config.cwMessage1
+                    : (slot == 2 ? &config.cwMessage2 : &config.cwMessage3);
+      Serial.print(F("cwMessage"));
+      Serial.print(slot);
+      Serial.print(F(": "));
+      Serial.println(*cur);
+    } else {
+      String text = arg.substring(sp2 + 1);
+      if (slot == 1) config.cwMessage1 = text;
+      else if (slot == 2) config.cwMessage2 = text;
+      else config.cwMessage3 = text;
+      Serial.print(F("cwMessage"));
+      Serial.print(slot);
+      Serial.print(F(" updated ("));
+      Serial.print(text.length());
+      Serial.println(F(" chars, RAM only)"));
+    }
   } else if (head == "signal") {
     radioSignal();
   } else if (head == "nosignal") {
     radioNoSignal();
   } else if (head == "id") {
     runPayload("id");
+    Serial.println();
   } else if (head == "time") {
     Serial.println(formatEpoch(schedulerWallEpoch()));
   } else if (head == "settime") {
@@ -387,9 +440,36 @@ static void exec(String line) {
     Serial.println(F("(restart for full re-arm)"));
   } else if (head == "status") {
     status();
+  } else if (head == "formatdisk") {
+    Serial.println(F("formatdisk: wiping filesystem in 3s..."));
+    Serial.flush();
+    delay(3000);
+    FatFS.end();
+    if (FatFS.format())
+      Serial.println(F("format ok, rebooting..."));
+    else
+      Serial.println(F("format FAILED, rebooting anyway..."));
+    Serial.flush();
+    delay(200);
+    rp2040.reboot();
   } else if (head == "reboot") {
     Serial.println(F("rebooting..."));
     delay(100);
+    rp2040.reboot();
+  } else if (head == "force80") {
+    // Hidden: simulate 80M hardware by creating /force80.flag, wiping
+    // config.txt and rebooting so the 80M default config is written.
+    Serial.println(F("force80: writing /force80.flag, clearing config, rebooting..."));
+    bandWriteForceFlag();
+    FatFS.remove("/config.txt");
+    delay(200);
+    rp2040.reboot();
+  } else if (head == "unforce80" || head == "force2m") {
+    // Hidden: remove force flag, wipe config, reboot → defaults back to GP17.
+    Serial.println(F("unforce80: removing /force80.flag, clearing config, rebooting..."));
+    bandRemoveForceFlag();
+    FatFS.remove("/config.txt");
+    delay(200);
     rp2040.reboot();
   } else {
     Serial.print(F("? "));

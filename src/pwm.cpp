@@ -103,7 +103,41 @@ void playWAV(const char *path) {
   while (pwm.availableForWrite() < 16)
     yield();
   pwm.end();
+  audioIdle();
   f.close();
+}
+
+static void audioSetup() {
+  analogWriteRange(1024);
+  analogWriteResolution(10);
+}
+
+void audioIdle() {
+  audioSetup();
+  analogWriteFreq(100000);
+  analogWrite(15, 512);
+}
+
+void audioTone(int hz) {
+  if (hz <= 0) {
+    audioIdle();
+    return;
+  }
+  audioSetup();
+  analogWriteFreq((uint32_t)hz);
+  analogWrite(15, 512);
+}
+
+void audioTone(int hz, int duty1024) {
+  if (hz <= 0 || duty1024 <= 0) {
+    audioIdle();
+    return;
+  }
+  if (duty1024 > 1024)
+    duty1024 = 1024;
+  audioSetup();
+  analogWriteFreq((uint32_t)hz);
+  analogWrite(15, duty1024);
 }
 
 void playPWM() { playWAV("/sample.wav"); }

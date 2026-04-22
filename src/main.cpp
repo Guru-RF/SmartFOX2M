@@ -1,5 +1,6 @@
 #include "FS.h"
 #include "Wire.h"
+#include "band.h"
 #include "cli.h"
 #include "cw.h"
 #include "leds.h"
@@ -18,8 +19,9 @@ struct Config {
   String fmFreq;
   String fmFreqList;
   String fmOffset;
-  String cwSpeed;
+  int cwWPM;
   String cwFreq;
+  int cwVolume;
   String cwMessage;
   String cwMessage1;
   String cwMessage2;
@@ -35,8 +37,6 @@ struct Config {
   float batLowVolts;
   float batCutoffVolts;
   bool sleepBetweenSlots;
-  int batAdcPin;
-  float batDivider;
 } config;
 
 Si5351 si5351;
@@ -49,14 +49,18 @@ volatile bool inPrinting = false;
 static bool batCutoff = false;
 
 static void setDefaults(Config &c) {
-  c.fmFreq = "145.450";
+  bool is80 = (bandDetected() == BAND_80M);
+  c.fmFreq = is80 ? "3.580" : "145.450";
   c.fmFreqList = "";
-  c.fmOffset = "30000";
-  c.cwSpeed = "75";
+  c.fmOffset = is80 ? "2000" : "30000";
+  c.cwWPM = 24;
   c.cwFreq = "750";
+  c.cwVolume = 100;
   c.cwMessage = "";
-  c.cwMessage1 = "VVV de ON6URE  LOCATOR IS JO20cw  PWR IS 32mW  ANT IS A "
-                 "NAGOYA MINI VERTICAL";
+  c.cwMessage1 = is80
+                     ? "VVV de ON6URE  QRP CW BEACON ON 80M"
+                     : "VVV de ON6URE  LOCATOR IS JO20cw  PWR IS 32mW  ANT "
+                       "IS A NAGOYA MINI VERTICAL";
   c.cwMessage2 = "";
   c.cwMessage3 = "";
   c.idCallsign = "ON6URE";
@@ -67,11 +71,9 @@ static void setDefaults(Config &c) {
   c.freqCycleSec = 0;
   c.runWindow = "";
   c.currentTime = "";
-  c.batLowVolts = 6.5f;
-  c.batCutoffVolts = 6.0f;
+  c.batLowVolts = 3.5f;
+  c.batCutoffVolts = 3.0f;
   c.sleepBetweenSlots = true;
-  c.batAdcPin = 28;
-  c.batDivider = 3.0f;
 }
 
 static bool yamlParse(const char *yaml, Config &cfg) {
@@ -133,8 +135,9 @@ static bool yamlParse(const char *yaml, Config &cfg) {
       if (key == "fmFreq") cfg.fmFreq = value;
       else if (key == "fmFreqList") cfg.fmFreqList = value;
       else if (key == "fmOffset") cfg.fmOffset = value;
-      else if (key == "cwSpeed") cfg.cwSpeed = value;
+      else if (key == "cwWPM") cfg.cwWPM = value.toInt();
       else if (key == "cwFreq") cfg.cwFreq = value;
+      else if (key == "cwVolume") cfg.cwVolume = value.toInt();
       else if (key == "cwMessage") cfg.cwMessage = value;
       else if (key == "cwMessage1") cfg.cwMessage1 = value;
       else if (key == "cwMessage2") cfg.cwMessage2 = value;
@@ -150,8 +153,6 @@ static bool yamlParse(const char *yaml, Config &cfg) {
       else if (key == "batCutoffVolts") cfg.batCutoffVolts = value.toFloat();
       else if (key == "sleepBetweenSlots")
         cfg.sleepBetweenSlots = (value == "true" || value == "1");
-      else if (key == "batAdcPin") cfg.batAdcPin = value.toInt();
-      else if (key == "batDivider") cfg.batDivider = value.toFloat();
       else if (key == "payload") cfg.payload = value;
     }
   }
@@ -234,16 +235,17 @@ static void cleanMacMetadata() {
 }
 
 static void cwSpeakRaw(const String &s) {
-  bool tx = true;
+  cwSetVolume(config.cwVolume > 0 ? config.cwVolume : 100);
   si5351.output_enable(SI5351_CLK0, 1);
   ledSetState(LED_TX);
-  cw_string_proc(s.c_str(), config.cwFreq.toInt(), config.cwSpeed.toInt());
-  (void)tx;
+  int wpm = config.cwWPM > 0 ? config.cwWPM : 24;
+  cw_string_proc(s.c_str(), config.cwFreq.toInt(), 1200 / wpm);
 }
 
 static void batteryWatchdog() {
   static unsigned long lastCheck = 0;
   static bool lobatAnnounced = false;
+  static int cutoffStreak = 0;
   if (batCutoff)
     return;
   unsigned long now = millis();
@@ -254,7 +256,25 @@ static void batteryWatchdog() {
   if (config.batLowVolts <= 0 && config.batCutoffVolts <= 0)
     return;
   float v = readBattery();
+  Serial.print("[bat] reading: ");
+  Serial.print(v, 2);
+  Serial.println(" V");
+  // Sanity floor/ceiling: reject readings outside a plausible 1S LiPo range.
+  // A floating ADC pin or miswired divider produces nonsense; don't cut off
+  // the radio based on nonsense.
+  if (v < 1.0f || v > 6.0f) {
+    Serial.println("[bat] reading out of plausible range — watchdog skipped");
+    return;
+  }
   if (config.batCutoffVolts > 0 && v < config.batCutoffVolts) {
+    cutoffStreak++;
+    Serial.print("[bat] below cutoff (");
+    Serial.print(v, 2);
+    Serial.print(" V), streak ");
+    Serial.print(cutoffStreak);
+    Serial.println("/3");
+    if (cutoffStreak < 3)
+      return;
     Serial.print("BAT cutoff: ");
     Serial.print(v, 2);
     Serial.println(" V — shutting down RF.");
@@ -266,6 +286,7 @@ static void batteryWatchdog() {
     batCutoff = true;
     return;
   }
+  cutoffStreak = 0;
   if (config.batLowVolts > 0 && v < config.batLowVolts) {
     if (!lobatAnnounced) {
       Serial.print("BAT low: ");
@@ -281,8 +302,9 @@ static void batteryWatchdog() {
   }
 }
 
-static const char *defaultYaml() {
+static const char *defaultYaml2M() {
   return
+      "# SmartFOX 2M — VHF FM beacon (145 MHz band)\n"
       "# RF\n"
       "fmFreq: \"145.450\"\n"
       "# comma list e.g. \"145.450,145.550\" enables rotation; empty = no rotation\n"
@@ -291,9 +313,11 @@ static const char *defaultYaml() {
       "# 0 = no rotation, else seconds per freq in fmFreqList\n"
       "freqCycleSec: 0\n"
       "\n"
-      "# CW\n"
-      "cwSpeed: \"75\"\n"
+      "# CW (sidetone-keyed over FM carrier)\n"
+      "cwWPM: 24\n"
       "cwFreq: \"750\"\n"
+      "# CW tone volume 0-100 (% of max). Lower if your receiver crackles.\n"
+      "cwVolume: 100\n"
       "cwMessage1: \"VVV de ON6URE  LOCATOR IS JO20cw  PWR IS 32mW  ANT IS A NAGOYA MINI VERTICAL\"\n"
       "cwMessage2: \"\"\n"
       "cwMessage3: \"\"\n"
@@ -307,28 +331,24 @@ static const char *defaultYaml() {
       "ardfCycleMin: 5\n"
       "\n"
       "# Schedule (RTC seeded once at boot from currentTime)\n"
-      "# runWindow empty = always, or e.g. \"09:00-17:00\"\n"
       "runWindow: \"\"\n"
-      "# currentTime \"YYYY-MM-DD HH:MM:SS\" seeds the wall clock\n"
       "currentTime: \"\"\n"
       "\n"
-      "# Battery (VSYS via ADC) - defaults: GPIO28 = ADC2, 3:1 divider\n"
-      "batLowVolts: 6.5\n"
-      "batCutoffVolts: 6.0\n"
-      "batAdcPin: 28\n"
-      "batDivider: 3.0\n"
+      "# Battery watchdog (1S 3.7 V LiPo) — set both to 0 to disable.\n"
+      "batLowVolts: 3.5\n"
+      "batCutoffVolts: 3.0\n"
       "sleepBetweenSlots: true\n"
       "\n"
       "# Payload commands:\n"
       "#   signal | nosignal | wait <s>\n"
-      "#   play <file.wav|file.rtttl> | random *.wav | random *.rtttl\n"
+      "#   play <file.wav|file.rtttl|file.mod> | random *.wav | random *.rtttl\n"
       "#   tone <hz> <ms> | homing <s> | freq <MHz>\n"
       "#   repeat <n> ... end\n"
-      "#   cwmsg | cwmsg2 | cwmsg3 | cw0 | cw1 | id | temp | bat\n"
+      "#   cwmsg1 | cwmsg2 | cwmsg3 | cw0 | cw1 | id | temp | bat\n"
       "#   ring | busy | congestion | pwm\n"
       "payload: |\n"
       "  signal\n"
-      "  cwmsg\n"
+      "  cwmsg1\n"
       "  wait 1\n"
       "  homing 8\n"
       "  wait 1\n"
@@ -340,14 +360,61 @@ static const char *defaultYaml() {
       "  wait 2\n"
       "  cw1\n"
       "  wait 1\n"
-      "  cwmsg\n"
+      "  cwmsg1\n"
       "  nosignal\n"
       "  wait 20\n";
 }
 
+static const char *defaultYaml80M() {
+  return
+      "# SmartFOX 80M — HF CW beacon (3.5 MHz band)\n"
+      "# RF (CW keying = Si5351 output enabled/disabled directly)\n"
+      "fmFreq: \"3.580\"\n"
+      "# comma list e.g. \"3.560,3.580\" enables rotation; empty = no rotation\n"
+      "fmFreqList: \"\"\n"
+      "fmOffset: \"2000\"\n"
+      "# 0 = no rotation, else seconds per freq in fmFreqList\n"
+      "freqCycleSec: 0\n"
+      "\n"
+      "# CW (carrier is keyed directly on HF — no sidetone / volume settings)\n"
+      "cwWPM: 24\n"
+      "cwMessage1: \"VVV de ON6URE  QRP CW BEACON ON 80M\"\n"
+      "cwMessage2: \"\"\n"
+      "cwMessage3: \"\"\n"
+      "\n"
+      "# Legal callsign ID watchdog (0 = disabled)\n"
+      "idCallsign: \"ON6URE\"\n"
+      "idIntervalMin: 10\n"
+      "\n"
+      "# ARDF: 0 = continuous TX, 1..5 = which slot in the cycle\n"
+      "ardfSlot: 0\n"
+      "ardfCycleMin: 5\n"
+      "\n"
+      "# Schedule (RTC seeded once at boot from currentTime)\n"
+      "runWindow: \"\"\n"
+      "currentTime: \"\"\n"
+      "\n"
+      "# Battery watchdog (1S 3.7 V LiPo) — set both to 0 to disable.\n"
+      "batLowVolts: 3.5\n"
+      "batCutoffVolts: 3.0\n"
+      "sleepBetweenSlots: true\n"
+      "\n"
+      "# Payload commands (80M CW-only, no audio playback):\n"
+      "#   wait <s> | freq <MHz> | repeat <n> ... end\n"
+      "#   cwmsg1 | cwmsg2 | cwmsg3 | cw0 | cw1 | id | temp | bat\n"
+      "payload: |\n"
+      "  cwmsg1\n"
+      "  wait 5\n"
+      "  id\n"
+      "  wait 20\n";
+}
+
+static const char *defaultYaml() {
+  return (bandDetected() == BAND_80M) ? defaultYaml80M() : defaultYaml2M();
+}
+
 void setup() {
   ledBegin(LED_PIN);
-  setDefaults(config);
 
   delay(2000);
   Serial.println("[boot] starting");
@@ -370,6 +437,11 @@ void setup() {
     fatfs::f_setlabel("SMARTFOX");
     cleanMacMetadata();
   }
+
+  // Detect band AFTER FatFS is up so we can also check /force80.flag.
+  bandBegin();
+  // Re-apply defaults now that the band is known.
+  setDefaults(config);
 
   const char *filePath = "/config.txt";
 
@@ -478,7 +550,10 @@ void setup() {
   FatFSUSB.onPlug(plug);
   FatFSUSB.driveReady(mountable);
   FatFSUSB.begin();
-  delay(500);
+  // USB re-enumerates to add MSC; CDC disconnects then comes back.
+  // Long pause so the host tty reattaches before further boot logs, otherwise
+  // everything until first loop() iteration ends up in a lost buffer.
+  delay(5000);
   Serial.println("[boot] FatFSUSB up");
 
   pinMode(3, OUTPUT);
@@ -494,20 +569,32 @@ void setup() {
     Serial.println("Si5351 not found on I2C bus!");
 
   si5351.reset();
-  si5351.set_ms_source(SI5351_CLK0, SI5351_PLLB);
-  si5351.pll_reset(SI5351_PLLB);
-  si5351.set_vcxo(PLLB_FREQ, 50);
-  si5351.drive_strength(SI5351_CLK0, SI5351_DRIVE_2MA);
 
   double freqMHz = config.fmFreq.toFloat();
   uint64_t freqHz = (uint64_t)(freqMHz * 1e8);
+
+  // Frequency < 30 MHz → HF (80M) path: direct OOK CW, strong drive, no VCXO.
+  // Frequency ≥ 30 MHz → VHF (2M) path: VCXO FM modulation via pin-15 sidetone.
+  bool hfMode = (freqMHz > 0.0 && freqMHz < 30.0);
+  if (hfMode) {
+    Serial.println("[si5351] HF CW mode (direct keying, 8 mA)");
+    si5351.drive_strength(SI5351_CLK0, SI5351_DRIVE_8MA);
+    cwSetKeying(CW_KEY_OUTPUT);
+  } else {
+    Serial.println("[si5351] VHF FM mode (VCXO + sidetone, 2 mA)");
+    si5351.set_ms_source(SI5351_CLK0, SI5351_PLLB);
+    si5351.pll_reset(SI5351_PLLB);
+    si5351.set_vcxo(PLLB_FREQ, 50);
+    si5351.drive_strength(SI5351_CLK0, SI5351_DRIVE_2MA);
+    cwSetKeying(CW_KEY_TONE);
+  }
   si5351.set_freq(freqHz, SI5351_CLK0);
   si5351.output_enable(SI5351_CLK0, 1);
   for (int i = 1; i <= 7; i++)
     si5351.set_clock_pwr((si5351_clock)i, 0);
 
   Serial.println("[boot] sensors");
-  sensorsBegin(config.batAdcPin, config.batDivider);
+  sensorsBegin();
 
   Serial.println("[boot] scheduler");
   ScheduleConfig sc;
@@ -526,7 +613,9 @@ void setup() {
   Serial.println("[boot] cli");
   cliBegin();
   ledSetState(LED_IDLE);
-  Serial.println("[boot] done — SmartFOX2M running");
+  Serial.print("[boot] done — SmartFOX");
+  Serial.print(bandDetected() == BAND_80M ? "80M" : "2M");
+  Serial.println(" running");
 }
 
 void loop() {
@@ -545,13 +634,17 @@ void loop() {
 
   if (driveConnected) {
     if (!wasDriveConnected) {
+      Serial.println("[usb] drive mounted by host — TX paused (use 'payload' CLI to run manually)");
       radioNoSignal();
       wasDriveConnected = true;
     }
     delay(50);
     return;
   }
-  wasDriveConnected = false;
+  if (wasDriveConnected) {
+    Serial.println("[usb] drive unmounted — TX resumed");
+    wasDriveConnected = false;
+  }
 
   if (!schedulerShouldTx()) {
     if (!wasOutOfSlot) {

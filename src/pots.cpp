@@ -1,12 +1,12 @@
-
 #include "pots.h"
+#include "pwm.h"
 
 void ring(int x) {
   for (int i = 0; i < x; i++) {
     Serial.println("Ring");
-    tone(15, 425, 1000);
+    audioTone(425);
     delay(1000);
-    tone(15, 0, 3000);
+    audioIdle();
     delay(3000);
   }
 }
@@ -14,9 +14,9 @@ void ring(int x) {
 void busy(int x) {
   for (int i = 0; i < x; i++) {
     Serial.println("Busy");
-    tone(15, 425, 500);
+    audioTone(425);
     delay(500);
-    tone(15, 0, 500);
+    audioIdle();
     delay(500);
   }
 }
@@ -24,9 +24,9 @@ void busy(int x) {
 void congestion(int x) {
   for (int i = 0; i < x; i++) {
     Serial.println("Congestion");
-    tone(15, 425, 167);
+    audioTone(425);
     delay(167);
-    tone(15, 0, 167);
+    audioIdle();
     delay(167);
   }
 }
