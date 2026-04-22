@@ -12,6 +12,7 @@ The `config.txt` written on first boot is tailored to the detected band (differe
 When ordered, your SmartFOX comes with the **latest firmware pre-installed**.
 
 Buy here [SmartFOX 2M – ARDF Beacon Transmitter (144 MHz)](https://shop.rf.guru/products/smartfox-2m-ardf)
+
 Buy here [SmartFOX 80M – ARDF Beacon Transmitter (3.5 MHz)](https://shop.rf.guru/products/smartfox-80m-ardf)
 
 YouTube [Playlist](https://www.youtube.com/watch?v=93If1xDU2ds&list=PL2neu3pWcZxienwiAIDyjRAkZ46nNQhHx&index=1)
